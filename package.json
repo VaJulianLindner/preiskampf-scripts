@@ -1,0 +1,16 @@
+{
+    "name": "preiskampf",
+    "scripts": {
+        "lambdas:lidl": "cd lambdas/aws/scrape-prices & pnpm local:lidl",
+        "lambdas:sitemap:lidl": "cd lambdas/aws/scrape-prices & pnpm local:sitemap:lidl",
+        "lambdas:aldisued": "cd lambdas/aws/scrape-prices & pnpm local:aldisued",
+        "lambdas:sitemap:aldisued": "cd lambdas/aws/scrape-prices & pnpm local:sitemap:aldisued",
+        "lambdas:aldinord": "cd lambdas/aws/scrape-prices & pnpm local:aldinord",
+        "lambdas:sitemap:aldinord": "cd lambdas/aws/scrape-prices & pnpm local:sitemap:aldinord",
+        "lambdas:deploy:scrape-prices": "cd lambdas/aws/scrape-prices & pnpm deploy",
+        "scripts:scrape-one-drive": "cd scripts/scrape-one-drive & pnpm start"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

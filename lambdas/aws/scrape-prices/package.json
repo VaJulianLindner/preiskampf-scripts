@@ -1,0 +1,26 @@
+{
+    "name": "scrape-prices",
+    "version": "1.0.0",
+    "scripts": {
+        "deploy": "serverless deploy --verbose --aws-profile private_juelz --region eu-central-1",
+        "local:lidl": "serverless invoke local --aws-profile private_juelz --function scrapeLidl",
+        "local:sitemap:lidl": "serverless invoke local --aws-profile private_juelz --function scrapeLidlSitemap",
+        "local:aldisued": "serverless invoke local --aws-profile private_juelz --function scrapeAldiSued",
+        "local:sitemap:aldisued": "serverless invoke local --aws-profile private_juelz --function scrapeAldiSuedSitemap",
+        "local:aldinord": "serverless invoke local --aws-profile private_juelz --function scrapeAldiNord",
+        "local:sitemap:aldinord": "serverless invoke local --aws-profile private_juelz --function scrapeAldiNordSitemap",
+        "login": "serverless login"
+    },
+    "devDependencies": {
+        "@types/aws-lambda": "^8.10.119",
+        "aws-lambda": "^1.0.7",
+        "esbuild": "0.20.01",
+        "serverless": "3.38.0",
+        "serverless-esbuild": "1.52.1",
+        "serverless-offline": "13.3.3",
+        "typescript": "^5.1.6"
+    },
+    "dependencies": {
+        "node-html-parser": "^6.1.5"
+    }
+}

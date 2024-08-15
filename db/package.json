@@ -1,0 +1,10 @@
+{
+    "name": "db",
+    "scripts": {
+        "types": "supabase start & supabase gen types tyscript --local > lib/database.types.ts"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.26.0",
+        "dotenv": "^16.3.1"
+    }
+}

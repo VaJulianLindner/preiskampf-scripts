@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "lib": ["esnext"],
+        "module": "commonjs",
+        "target": "esnext",
+        "moduleResolution": "node",
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
+        "outDir": ".esbuild",
+        "sourceMap": true,
+        "strict": true
+    },
+    "exclude": [
+        "node_modules",
+        ".build",
+        ".serverless",
+        ".esbuild"
+    ]
+}
