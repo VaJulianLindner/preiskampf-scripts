@@ -1,6 +1,5 @@
 import type { Context } from "aws-lambda";
 
-import fetch from "node-fetch";
 import { parse } from "node-html-parser";
 
 import { getSitemapContentForDomain } from "../lib/sitemap";
