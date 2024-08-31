@@ -2,10 +2,10 @@ import type { Context } from "aws-lambda";
 import zlib from "node:zlib";
 
 import { getSitemapContentForDomain } from "../lib/sitemap";
-import { getProductJsonLd, type ParsedProductJson, type OfferJson } from "../lib/parse";
+import { getProductJsonLd, type OfferJson } from "../lib/parse";
 import { client } from "../../../../../db";
 import { LIDL_ID } from "../lib/const";
-import { printProgress } from "../lib/misc";
+import { printProgress, type PriceData } from "../lib/misc";
 
 const URL_ROOT = "https://www.lidl.de";
 
@@ -58,7 +58,7 @@ export const scrapeLidl = async (event: any, context: Context) => {
         }
 
         try {
-            const {error, status, statusText} = await client.from("products").upsert(productData);
+            const { error, status, statusText } = await client.from("products").upsert(productData);
 
             for (let j = 0; j < offers.length; j++) {
                 const offerData = offers[j];
@@ -66,13 +66,12 @@ export const scrapeLidl = async (event: any, context: Context) => {
                     continue;
                 }
 
-                const priceData = {
+                const priceData: PriceData = {
                     product_id: id,
                     currency: offerData.priceCurrency,
                     price: Math.round(parseFloat(offerData.price) * 100),
                 };
                 if (offerData.availability) {
-                    // @ts-ignore
                     priceData.availability = offerData.availability;
                 }
                 const { data, error } = await client.from("prices").select("id")
