@@ -5,6 +5,14 @@ export type PriceData = {
     availability?: string,
 }
 
+export type ProductData = {
+    id?: string,
+    name: string,
+    images: Array<string>,
+    url: string | undefined,
+    market_id: number,
+}
+
 export function printProgress(current: number, total: number) {
     process.stdout.clearLine(0);
     process.stdout.cursorTo(0);

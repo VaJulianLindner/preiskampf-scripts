@@ -1,11 +1,11 @@
 import type { Context } from "aws-lambda";
 import zlib from "node:zlib";
 
-import { getSitemapContentForDomain } from "../lib/sitemap";
+import { getSitemapContentForDomain, getLocationsFromSitemapContent } from "../lib/sitemap";
 import { getProductJsonLd, type OfferJson } from "../lib/parse";
 import { client } from "../../../../../db";
 import { LIDL_ID } from "../lib/const";
-import { printProgress, type PriceData } from "../lib/misc";
+import { printProgress, type PriceData, type ProductData } from "../lib/misc";
 
 const URL_ROOT = "https://www.lidl.de";
 
@@ -26,16 +26,14 @@ export const scrapeLidl = async (event: any, context: Context) => {
         return { statusCode: 404 };
     }
 
-    console.time("parsing sitemap");
     const response = await fetch(productsSitemapLocation, { headers: { "no-cache": "no-cache" } });
     const gunzipBuffer = zlib.gunzipSync(await response.arrayBuffer());
     const content = gunzipBuffer.toString();
-    const productLocations = content.split("\n").filter(v => v.trim().startsWith("<loc>")).map(v => v.match(/<loc>(.*?)<\/loc>/m)?.[1]).filter(Boolean);
-    console.timeEnd("parsing sitemap");
+    const productLocations = getLocationsFromSitemapContent(content);
 
-    console.time("product");
     // TODO theoretically have to delete unimported products or at least disable them..
     // TODO how to enqueue updates?
+    console.time("product");
     for (let i = 0; i < productLocations.length; i++) {
         const url = productLocations[i];
         if (!url) {
@@ -49,13 +47,13 @@ export const scrapeLidl = async (event: any, context: Context) => {
 
         const id = LIDL_ID + "_" + parsedJson.sku;
         const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
-        const productData = {
+        const productData: ProductData = {
             id: id,
             name: parsedJson.name,
-            images: parsedJson.image,
+            images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
             url: parsedJson.url,
             market_id: LIDL_ID,
-        }
+        };
 
         try {
             const { error, status, statusText } = await client.from("products").upsert(productData);
@@ -79,9 +77,8 @@ export const scrapeLidl = async (event: any, context: Context) => {
                     .eq("price", priceData.price)
                     .limit(1);
 
-                if (!data?.length && !error) {
-                    await client.from("prices").insert(priceData);
-                }
+                // TODO check if multiple prices would cause problems after app fixes
+                await client.from("prices").insert(priceData);
             }
         } catch (e) {
             console.error(e);
@@ -89,7 +86,6 @@ export const scrapeLidl = async (event: any, context: Context) => {
 
         printProgress(i, productLocations.length);
     }
-
     console.timeEnd("product");
 
     return { statusCode: 200 };
