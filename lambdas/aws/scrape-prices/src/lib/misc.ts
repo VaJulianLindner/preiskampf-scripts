@@ -13,8 +13,12 @@ export type ProductData = {
     market_id: number,
 }
 
-export function printProgress(current: number, total: number) {
+export function printProgress(current: number, total: number, additionalMsg?: string) {
     process.stdout.clearLine(0);
     process.stdout.cursorTo(0);
-    process.stdout.write(`${current} of ${total} (${Math.ceil(current / total * 100)}%)`);
+    let line = `${current} of ${total} (${Math.ceil(current / total * 100)}%)`;
+    if (additionalMsg) {
+        line += additionalMsg;
+    }
+    process.stdout.write(line);
 }

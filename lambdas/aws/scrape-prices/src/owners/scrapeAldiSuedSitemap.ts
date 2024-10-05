@@ -87,7 +87,7 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
             console.error(e);
         }
 
-        printProgress(i, productLocations.length);
+        printProgress(i, productLocations.length, ` -- ${productData.id}`);
     }
     console.timeEnd("product");
 
