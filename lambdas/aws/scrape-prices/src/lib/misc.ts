@@ -11,6 +11,8 @@ export type ProductData = {
     images: Array<string>,
     url: string | undefined,
     market_id: number,
+    currency: string,
+    price: number,
 }
 
 export function printProgress(current: number, total: number, additionalMsg?: string) {

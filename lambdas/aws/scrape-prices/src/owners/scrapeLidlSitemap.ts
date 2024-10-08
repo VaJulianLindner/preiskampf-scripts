@@ -2,7 +2,7 @@ import type { Context } from "aws-lambda";
 import zlib from "node:zlib";
 
 import { getSitemapContentForDomain, getLocationsFromSitemapContent } from "../lib/sitemap";
-import { getProductJsonLd, type OfferJson } from "../lib/parse";
+import { getProductJsonLd, parseOfferJsonIntoPriceData, type OfferJson } from "../lib/parse";
 import { client } from "../../../../../db";
 import { LIDL_ID } from "../lib/const";
 import { printProgress, type PriceData, type ProductData } from "../lib/misc";
@@ -47,44 +47,36 @@ export const scrapeLidl = async (event: any, context: Context) => {
 
         const id = LIDL_ID + "_" + parsedJson.sku;
         const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
+
+        const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
+        if (!priceUpdates.length) {
+            continue;
+        }
+
+        const latestPrice = priceUpdates[0];
         const productData: ProductData = {
             id: id,
             name: parsedJson.name,
             images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
             url: parsedJson.url,
             market_id: LIDL_ID,
+            price: latestPrice.price,
+            currency: latestPrice.currency,
         };
 
         try {
             const { error, status, statusText } = await client.from("products").upsert(productData);
-
-            for (let j = 0; j < offers.length; j++) {
-                const offerData = offers[j];
-                if (!offerData?.price) {
-                    continue;
-                }
-
-                const priceData: PriceData = {
-                    product_id: id,
-                    currency: offerData.priceCurrency,
-                    price: Math.round(parseFloat(offerData.price) * 100),
-                };
-                if (offerData.availability) {
-                    priceData.availability = offerData.availability;
-                }
-                const { data, error } = await client.from("prices").select("id")
-                    .eq("product_id", priceData.product_id)
-                    .eq("price", priceData.price)
-                    .limit(1);
-
-                // TODO check if multiple prices would cause problems after app fixes
-                await client.from("prices").insert(priceData);
-            }
         } catch (e) {
-            console.error(e);
+            console.error("error while updating product", e);
         }
 
-        printProgress(i, productLocations.length);
+        try {
+            const { error, status, statusText } = await client.from("prices").insert(priceUpdates);
+        } catch (e) {
+            console.error("error while updating prices", e);
+        }
+
+        printProgress(i, productLocations.length, ` -- ${productData.id}`);
     }
     console.timeEnd("product");
 

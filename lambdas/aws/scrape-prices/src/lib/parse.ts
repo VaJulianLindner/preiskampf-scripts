@@ -1,4 +1,5 @@
 import { parse } from "node-html-parser";
+import { type PriceData } from "./misc";
 
 export type OfferJson = {
     "@type": "Offer",
@@ -46,4 +47,27 @@ export async function getProductJsonLd(url: string): Promise<ParsedProductJson |
     } catch (e) {
         console.error("error in getProductJsonLd", e);
     }
+}
+
+export function parseOfferJsonIntoPriceData(offers: Array<OfferJson>, productId: string) {
+    const priceUpdates: Array<PriceData> = [];
+    for (let j = 0; j < offers.length; j++) {
+        const offerData = offers[j];
+        if (!offerData?.price) {
+            continue;
+        }
+
+        const priceData: PriceData = {
+            product_id: productId,
+            currency: offerData.priceCurrency,
+            price: Math.round(parseFloat(offerData.price) * 100),
+        };
+        if (offerData.availability) {
+            priceData.availability = offerData.availability;
+        }
+
+        priceUpdates.push(priceData);
+    }
+
+    return priceUpdates;
 }
