@@ -8,7 +8,8 @@
         "lambdas:aldinord": "cd lambdas/aws/scrape-prices & pnpm local:aldinord",
         "lambdas:sitemap:aldinord": "cd lambdas/aws/scrape-prices & pnpm local:sitemap:aldinord",
         "lambdas:deploy:scrape-prices": "cd lambdas/aws/scrape-prices & pnpm deploy",
-        "scripts:scrape-one-drive": "cd scripts/scrape-one-drive & pnpm start"
+        "scripts:scrape-one-drive": "cd scripts/scrape-one-drive & pnpm start",
+        "pentest:basic": "k6 run ./pentest/basic.js"
     },
     "engines": {
         "node": ">=20"
