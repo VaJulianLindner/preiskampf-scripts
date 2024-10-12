@@ -1,12 +1,18 @@
 import type { Context } from "aws-lambda";
+import asyncPool from "tiny-async-pool";
 
-import { getProductJsonLd, parseOfferJsonIntoPriceData, type OfferJson } from "../lib/parse";
+import { getProductJsonLd, parseOfferJsonIntoPriceData, type OfferJson, type ParsedProductJson } from "../lib/parse";
 import { getRobotsForDomain, getLocationsFromSitemapContent } from "../lib/sitemap";
 import { client } from "../../../../../db";
 import { ALDI_SUED_ID } from "../lib/const";
-import { printProgress, type ProductData, type PriceData } from "../lib/misc";
+import { printProgress, type ProductData } from "../lib/misc";
 
 const URL_ROOT = "https://www.aldi-sued.de";
+
+type ParsedProductData = {
+    parsedJson: ParsedProductJson | undefined,
+    url: string | undefined,
+};
 
 export const scrapeAldiSued = async (event: any, context: Context) => {
     console.log("running scrapeAldiSued:", context.functionName);
@@ -26,18 +32,27 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
     const sitemapContent = await fetch(sitemapLocation, { headers: { "no-cache": "no-cache" } }).then(res => res.text());
     const productLocations = getLocationsFromSitemapContent(sitemapContent);
 
-    console.time("product");
-    for (let i = 0; i < productLocations.length; i++) {
-        const url = productLocations[i];
-        if (!url) {
+    // TODO theoretically have to delete unimported products or at least disable them..
+
+    console.time("fetch-and-parse-jsonld");
+    const productLocationWithJsonLd: Array<ParsedProductData> = [];
+    let count = 0;
+    for await (const productData of asyncPool(10, productLocations, getProductJsonLd)) {
+        count++;
+        printProgress(count, productLocations.length);
+        productLocationWithJsonLd.push(productData);
+    }
+    console.log("\n");
+    console.timeEnd("fetch-and-parse-jsonld");
+
+    const dbUpdates = [];
+    console.time("generate-db-updates");
+    for (let i = 0; i < productLocationWithJsonLd.length; i++) {
+        const {parsedJson, url} = productLocationWithJsonLd[i];
+        if (!parsedJson || !url) {
             continue;
         }
 
-        const parsedJson = await getProductJsonLd(url);
-        if (!parsedJson) {
-            continue;
-        }
- 
         const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
     
         let sku = parsedJson.sku;
@@ -68,21 +83,34 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
             currency: latestPrice.currency,
         };
 
-        try {
-            const { error, status, statusText } = await client.from("products").upsert(productData);
-        } catch (e) {
-            console.error("error while updating product", e);
-        }
-
-        try {
-            const { error, status, statusText } = await client.from("prices").insert(priceUpdates);
-        } catch (e) {
-            console.error("error while updating prices", e);
-        }
-
-        printProgress(i, productLocations.length, ` -- ${productData.id}`);
+        dbUpdates.push(client.from("products").upsert(productData));
+        dbUpdates.push(client.from("prices").insert(priceUpdates));
     }
-    console.timeEnd("product");
+    console.timeEnd("generate-db-updates");
+
+    console.time("execute-db-updates");
+    const dbResults = await Promise.all(dbUpdates);
+    console.timeEnd("execute-db-updates");
+
+    const resultState = {
+        success: 0,
+        error: 0,
+    };
+
+    dbResults.forEach(res => {
+        if (String(res.status).startsWith("2")) {
+            resultState.success++;
+        } else {
+            resultState.error++;
+        }
+    });
+
+    console.log("resultState::", JSON.stringify(resultState, null, 2), "from", productLocationWithJsonLd.length, "parsed products and", dbResults.length, "enqueued updates");
 
     return { statusCode: 200 };
+}
+
+async function getProductJsonLdWithUrl(url: string): Promise<ParsedProductData | undefined>  {
+    const parsedJson = await getProductJsonLd(url);
+    return {parsedJson, url};
 }

@@ -35,6 +35,10 @@ export type ParsedProductJson = {
 };
 
 export async function getProductJsonLd(url: string): Promise<ParsedProductJson | undefined> {
+    if (!url) {
+        return;
+    }
+
     try {
         const response = await fetch(url).then(res => res.text());
         const document = parse(response);

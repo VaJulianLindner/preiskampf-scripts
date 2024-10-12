@@ -1,11 +1,12 @@
 import type { Context } from "aws-lambda";
 import zlib from "node:zlib";
+import asyncPool from "tiny-async-pool";
 
 import { getSitemapContentForDomain, getLocationsFromSitemapContent } from "../lib/sitemap";
-import { getProductJsonLd, parseOfferJsonIntoPriceData, type OfferJson } from "../lib/parse";
+import { getProductJsonLd, parseOfferJsonIntoPriceData, type ParsedProductJson, type OfferJson } from "../lib/parse";
 import { client } from "../../../../../db";
 import { LIDL_ID } from "../lib/const";
-import { printProgress, type PriceData, type ProductData } from "../lib/misc";
+import { printProgress, type ProductData } from "../lib/misc";
 
 const URL_ROOT = "https://www.lidl.de";
 
@@ -32,16 +33,23 @@ export const scrapeLidl = async (event: any, context: Context) => {
     const productLocations = getLocationsFromSitemapContent(content);
 
     // TODO theoretically have to delete unimported products or at least disable them..
-    // TODO how to enqueue updates?
-    console.time("product");
-    for (let i = 0; i < productLocations.length; i++) {
-        const url = productLocations[i];
-        if (!url) {
-            continue;
-        }
 
-        const parsedJson = await getProductJsonLd(url);
-        if (!parsedJson || !parsedJson.sku) {
+    console.time("fetch-and-parse-jsonld");
+    const jsonLds = [];
+    let count = 0;
+    for await (const jsonLd of asyncPool(10, productLocations, getProductJsonLd)) {
+        count++;
+        printProgress(count, productLocations.length);
+        jsonLds.push(jsonLd);
+    }
+    console.log("\n");
+    console.timeEnd("fetch-and-parse-jsonld");
+
+    const dbUpdates = [];
+    console.time("generate-db-updates");
+    for (let i = 0; i < jsonLds.length; i++) {
+        const parsedJson = jsonLds[i];
+        if (!parsedJson?.sku) {
             continue;
         }
 
@@ -64,21 +72,29 @@ export const scrapeLidl = async (event: any, context: Context) => {
             currency: latestPrice.currency,
         };
 
-        try {
-            const { error, status, statusText } = await client.from("products").upsert(productData);
-        } catch (e) {
-            console.error("error while updating product", e);
-        }
-
-        try {
-            const { error, status, statusText } = await client.from("prices").insert(priceUpdates);
-        } catch (e) {
-            console.error("error while updating prices", e);
-        }
-
-        printProgress(i, productLocations.length, ` -- ${productData.id}`);
+        dbUpdates.push(client.from("products").upsert(productData));
+        dbUpdates.push(client.from("prices").insert(priceUpdates));
     }
-    console.timeEnd("product");
+    console.timeEnd("generate-db-updates");
+
+    console.time("execute-db-updates");
+    const dbResults = await Promise.all(dbUpdates);
+    console.timeEnd("execute-db-updates");
+
+    const resultState = {
+        success: 0,
+        error: 0,
+    };
+
+    dbResults.forEach(res => {
+        if (String(res.status).startsWith("2")) {
+            resultState.success++;
+        } else {
+            resultState.error++;
+        }
+    });
+
+    console.log("resultState::", JSON.stringify(resultState, null, 2), "from", jsonLds.length, "parsed products and", dbResults.length, "enqueued updates");
 
     return { statusCode: 200 };
 }
