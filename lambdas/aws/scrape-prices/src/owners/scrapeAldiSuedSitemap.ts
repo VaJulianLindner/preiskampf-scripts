@@ -5,7 +5,7 @@ import { getProductJsonLd, parseOfferJsonIntoPriceData, type OfferJson, type Par
 import { getRobotsForDomain, getLocationsFromSitemapContent } from "../lib/sitemap";
 import { client } from "../../../../../db";
 import { ALDI_SUED_ID } from "../lib/const";
-import { printProgress, type ProductData } from "../lib/misc";
+import { printProgress, type ProductData, type PriceData } from "../lib/misc";
 
 const URL_ROOT = "https://www.aldi-sued.de";
 
@@ -35,61 +35,28 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
     // TODO theoretically have to delete unimported products or at least disable them..
 
     console.time("fetch-and-parse-jsonld");
-    const productLocationWithJsonLd: Array<ParsedProductData> = [];
+    const productLocationsWithJsonLd: Array<ParsedProductData> = [];
     let count = 0;
-    for await (const productData of asyncPool(10, productLocations, getProductJsonLd)) {
+    // TODO could be higher order function to dedupe code
+    for await (const productData of asyncPool(15, productLocations, getProductJsonLdWithUrl)) {
         count++;
         printProgress(count, productLocations.length);
-        productLocationWithJsonLd.push(productData);
+        productLocationsWithJsonLd.push(productData);
     }
     console.log("\n");
     console.timeEnd("fetch-and-parse-jsonld");
 
-    const dbUpdates = [];
-    console.time("generate-db-updates");
-    for (let i = 0; i < productLocationWithJsonLd.length; i++) {
-        const {parsedJson, url} = productLocationWithJsonLd[i];
-        if (!parsedJson || !url) {
-            continue;
-        }
-
-        const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
-    
-        let sku = parsedJson.sku;
-        if (!parsedJson.sku) {
-            const splits = offers?.[0]?.url.split(".").filter(Boolean);
-            sku = splits?.[splits.length - 2];
-        }
-
-        if (!sku) {
-            continue;
-        }
-        
-        const id = ALDI_SUED_ID + "_" + sku;
-
-        const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
-        if (!priceUpdates.length) {
-            continue;
-        }
-
-        const latestPrice = priceUpdates[0];
-        const productData: ProductData = {
-            id: id,
-            name: parsedJson.name,
-            images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
-            url: parsedJson.url || url,
-            market_id: ALDI_SUED_ID,
-            price: latestPrice.price,
-            currency: latestPrice.currency,
-        };
-
-        dbUpdates.push(client.from("products").upsert(productData));
-        dbUpdates.push(client.from("prices").insert(priceUpdates));
-    }
-    console.timeEnd("generate-db-updates");
-
+    const dbResults = [];
     console.time("execute-db-updates");
-    const dbResults = await Promise.all(dbUpdates);
+    // TODO could be higher order function to dedupe code
+    for await (const updates of asyncPool(15, productLocationsWithJsonLd, getDBUpdateData)) {
+        if (updates?.length === 2) {
+            const [productUpdate, priceUpdates] = updates;
+            dbResults.push(await client.from("products").upsert(productUpdate));
+            dbResults.push(await client.from("prices").insert(priceUpdates));
+        }
+    }
+    console.log("\n");
     console.timeEnd("execute-db-updates");
 
     const resultState = {
@@ -101,11 +68,12 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
         if (String(res.status).startsWith("2")) {
             resultState.success++;
         } else {
+            console.error(res);
             resultState.error++;
         }
     });
 
-    console.log("resultState::", JSON.stringify(resultState, null, 2), "from", productLocationWithJsonLd.length, "parsed products and", dbResults.length, "enqueued updates");
+    console.log("resultState::", JSON.stringify(resultState, null, 2), "from", productLocationsWithJsonLd.length, "parsed products and", dbResults.length, "enqueued updates");
 
     return { statusCode: 200 };
 }
@@ -113,4 +81,43 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
 async function getProductJsonLdWithUrl(url: string): Promise<ParsedProductData | undefined>  {
     const parsedJson = await getProductJsonLd(url);
     return {parsedJson, url};
+}
+
+async function getDBUpdateData(productLocationWithJsonLd: ParsedProductData): Promise<undefined|Array<ProductData|Array<PriceData>>> {
+    const {parsedJson, url} = productLocationWithJsonLd;
+    if (!parsedJson || !url) {
+        return;
+    }
+
+    const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
+
+    let sku = parsedJson.sku;
+    if (!parsedJson.sku) {
+        const splits = offers?.[0]?.url.split(".").filter(Boolean);
+        sku = splits?.[splits.length - 2];
+    }
+
+    if (!sku) {
+        return;
+    }
+    
+    const id = ALDI_SUED_ID + "_" + sku;
+
+    const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
+    if (!priceUpdates.length) {
+        return;
+    }
+
+    const latestPrice = priceUpdates[0];
+    const productData: ProductData = {
+        id: id,
+        name: parsedJson.name,
+        images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
+        url: parsedJson.url || url,
+        market_id: ALDI_SUED_ID,
+        price: latestPrice.price,
+        currency: latestPrice.currency,
+    };
+
+    return [productData, priceUpdates];
 }

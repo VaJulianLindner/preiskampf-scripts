@@ -1,3 +1,5 @@
+import readline from "node:readline";
+
 export type PriceData = {
     product_id: string,
     currency: string,
@@ -16,8 +18,8 @@ export type ProductData = {
 }
 
 export function printProgress(current: number, total: number, additionalMsg?: string) {
-    process.stdout.clearLine(0);
-    process.stdout.cursorTo(0);
+    // @ts-ignore
+    readline.cursorTo(0);
     let line = `${current} of ${total} (${Math.ceil(current / total * 100)}%)`;
     if (additionalMsg) {
         line += additionalMsg;

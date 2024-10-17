@@ -53,7 +53,7 @@ export async function getProductJsonLd(url: string): Promise<ParsedProductJson |
     }
 }
 
-export function parseOfferJsonIntoPriceData(offers: Array<OfferJson>, productId: string) {
+export function parseOfferJsonIntoPriceData(offers: Array<OfferJson>, productId: string): Array<PriceData> {
     const priceUpdates: Array<PriceData> = [];
     for (let j = 0; j < offers.length; j++) {
         const offerData = offers[j];

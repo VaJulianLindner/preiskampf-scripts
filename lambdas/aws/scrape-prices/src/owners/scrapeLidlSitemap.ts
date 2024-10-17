@@ -76,6 +76,7 @@ export const scrapeLidl = async (event: any, context: Context) => {
         dbUpdates.push(client.from("prices").insert(priceUpdates));
     }
     console.timeEnd("generate-db-updates");
+    console.log("got", dbUpdates.length, "db updates..");
 
     console.time("execute-db-updates");
     const dbResults = await Promise.all(dbUpdates);
@@ -90,6 +91,7 @@ export const scrapeLidl = async (event: any, context: Context) => {
         if (String(res.status).startsWith("2")) {
             resultState.success++;
         } else {
+            console.error(res);
             resultState.error++;
         }
     });
