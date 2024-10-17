@@ -35,51 +35,25 @@ export const scrapeLidl = async (event: any, context: Context) => {
     // TODO theoretically have to delete unimported products or at least disable them..
 
     console.time("fetch-and-parse-jsonld");
-    const jsonLds = [];
+    const jsonLds: Array<ParsedProductJson> = [];
     let count = 0;
+    // TODO could be higher order function to dedupe code
     for await (const jsonLd of asyncPool(10, productLocations, getProductJsonLd)) {
         count++;
         printProgress(count, productLocations.length);
-        jsonLds.push(jsonLd);
+        if (jsonLd) {
+            jsonLds.push(jsonLd);
+        }
     }
     console.log("\n");
     console.timeEnd("fetch-and-parse-jsonld");
 
-    const dbUpdates = [];
-    console.time("generate-db-updates");
-    for (let i = 0; i < jsonLds.length; i++) {
-        const parsedJson = jsonLds[i];
-        if (!parsedJson?.sku) {
-            continue;
-        }
-
-        const id = LIDL_ID + "_" + parsedJson.sku;
-        const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
-
-        const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
-        if (!priceUpdates.length) {
-            continue;
-        }
-
-        const latestPrice = priceUpdates[0];
-        const productData: ProductData = {
-            id: id,
-            name: parsedJson.name,
-            images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
-            url: parsedJson.url,
-            market_id: LIDL_ID,
-            price: latestPrice.price,
-            currency: latestPrice.currency,
-        };
-
-        dbUpdates.push(client.from("products").upsert(productData));
-        dbUpdates.push(client.from("prices").insert(priceUpdates));
-    }
-    console.timeEnd("generate-db-updates");
-    console.log("got", dbUpdates.length, "db updates..");
-
     console.time("execute-db-updates");
-    const dbResults = await Promise.all(dbUpdates);
+    const dbResults = [];
+    // TODO could be higher order function to dedupe code
+    for await (const results of asyncPool(15, jsonLds, executeDbUpdate)) {
+        dbResults.push(...results);
+    }
     console.timeEnd("execute-db-updates");
 
     const resultState = {
@@ -91,7 +65,7 @@ export const scrapeLidl = async (event: any, context: Context) => {
         if (String(res.status).startsWith("2")) {
             resultState.success++;
         } else {
-            console.error(res);
+            console.error("error in db result:", res);
             resultState.error++;
         }
     });
@@ -99,4 +73,37 @@ export const scrapeLidl = async (event: any, context: Context) => {
     console.log("resultState::", JSON.stringify(resultState, null, 2), "from", jsonLds.length, "parsed products and", dbResults.length, "enqueued updates");
 
     return { statusCode: 200 };
+}
+
+// TODO fix any
+async function executeDbUpdate(parsedJson: ParsedProductJson): Promise<Array<any>> {
+    if (!parsedJson?.sku) {
+        return [];
+    }
+
+    const id = LIDL_ID + "_" + parsedJson.sku;
+    const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
+
+    // TODO price updates probably need to be only added if prices dont change, to not spam the db table
+    const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
+    if (!priceUpdates.length) {
+        return [];
+    }
+
+    const latestPrice = priceUpdates[0];
+    const productData: ProductData = {
+        id: id,
+        name: parsedJson.name,
+        images: (Array.isArray(parsedJson.image) ? parsedJson.image : [parsedJson.image]).filter(Boolean),
+        url: parsedJson.url,
+        market_id: LIDL_ID,
+        price: latestPrice.price,
+        currency: latestPrice.currency,
+    };
+
+    const productResult = await client.from("products").upsert(productData);
+    // prices table has foreign_key constraint on products table
+    const priceResults = await client.from("prices").insert(priceUpdates);
+
+    return [productResult, priceResults];
 }

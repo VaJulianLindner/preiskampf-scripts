@@ -19,7 +19,7 @@ export type ProductData = {
 
 export function printProgress(current: number, total: number, additionalMsg?: string) {
     // @ts-ignore
-    readline.cursorTo(0);
+    readline.cursorTo(process.stdout, 0);
     let line = `${current} of ${total} (${Math.ceil(current / total * 100)}%)`;
     if (additionalMsg) {
         line += additionalMsg;

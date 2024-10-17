@@ -41,7 +41,9 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
     for await (const productData of asyncPool(15, productLocations, getProductJsonLdWithUrl)) {
         count++;
         printProgress(count, productLocations.length);
-        productLocationsWithJsonLd.push(productData);
+        if (productData) {
+            productLocationsWithJsonLd.push(productData);
+        }
     }
     console.log("\n");
     console.timeEnd("fetch-and-parse-jsonld");
@@ -49,12 +51,8 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
     const dbResults = [];
     console.time("execute-db-updates");
     // TODO could be higher order function to dedupe code
-    for await (const updates of asyncPool(15, productLocationsWithJsonLd, getDBUpdateData)) {
-        if (updates?.length === 2) {
-            const [productUpdate, priceUpdates] = updates;
-            dbResults.push(await client.from("products").upsert(productUpdate));
-            dbResults.push(await client.from("prices").insert(priceUpdates));
-        }
+    for await (const results of asyncPool(15, productLocationsWithJsonLd, executeDbUpdate)) {
+        dbResults.push(...results);
     }
     console.log("\n");
     console.timeEnd("execute-db-updates");
@@ -68,7 +66,7 @@ export const scrapeAldiSued = async (event: any, context: Context) => {
         if (String(res.status).startsWith("2")) {
             resultState.success++;
         } else {
-            console.error(res);
+            console.error("error in db result:", res);
             resultState.error++;
         }
     });
@@ -83,10 +81,11 @@ async function getProductJsonLdWithUrl(url: string): Promise<ParsedProductData |
     return {parsedJson, url};
 }
 
-async function getDBUpdateData(productLocationWithJsonLd: ParsedProductData): Promise<undefined|Array<ProductData|Array<PriceData>>> {
+// TODO fix any
+async function executeDbUpdate(productLocationWithJsonLd: ParsedProductData): Promise<Array<any>> {
     const {parsedJson, url} = productLocationWithJsonLd;
     if (!parsedJson || !url) {
-        return;
+        return [];
     }
 
     const offers: Array<OfferJson> = Array.isArray(parsedJson.offers) ? parsedJson.offers : [parsedJson.offers];
@@ -98,14 +97,15 @@ async function getDBUpdateData(productLocationWithJsonLd: ParsedProductData): Pr
     }
 
     if (!sku) {
-        return;
+        return [];
     }
     
     const id = ALDI_SUED_ID + "_" + sku;
 
+    // TODO price updates probably need to be only added if prices dont change, to not spam the db table
     const priceUpdates = parseOfferJsonIntoPriceData(offers, id);
     if (!priceUpdates.length) {
-        return;
+        return [];
     }
 
     const latestPrice = priceUpdates[0];
@@ -119,5 +119,9 @@ async function getDBUpdateData(productLocationWithJsonLd: ParsedProductData): Pr
         currency: latestPrice.currency,
     };
 
-    return [productData, priceUpdates];
+    const productResult = await client.from("products").upsert(productData);
+    // prices table has foreign_key constraint on products table
+    const priceResults = await client.from("prices").insert(priceUpdates);
+
+    return [productResult, priceResults];
 }
