@@ -119,9 +119,18 @@ async function executeDbUpdate(productLocationWithJsonLd: ParsedProductData): Pr
         currency: latestPrice.currency,
     };
 
-    const productResult = await client.from("products").upsert(productData);
     // prices table has foreign_key constraint on products table
-    const priceResults = await client.from("prices").insert(priceUpdates);
+    const results = [await client.from("products").upsert(productData)];
+    
+    // only save price if there is an update
+    const {data} = await client.from("prices")
+        .select("price")
+        .eq("product_id", latestPrice.product_id)
+        .order("created_at", {ascending: false})
+        .limit(1);
+    if (data?.[0]?.price !== latestPrice.price) {
+        results.push(await client.from("prices").insert(priceUpdates));
+    }
 
-    return [productResult, priceResults];
+    return results;
 }
